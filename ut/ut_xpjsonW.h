@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include "../xpjson.hpp"
+using namespace std;
 
 TEST(ut_xpjsonW, write)
 {
@@ -47,6 +48,11 @@ TEST(ut_xpjsonW, write)
 
 		v.read_number(out.c_str(), out.length());
 		ASSERT_TRUE(fabs(v.f() + DBL_MIN) < 1e-293);
+
+		v = L"/\\\"";
+		out.clear();
+		v.write(out);
+		ASSERT_TRUE(out == L"\"\\/\\\\\\\"\"");
 	}
 	catch(std::exception &e) {
 		printf("Error : %s.", e.what());
@@ -230,6 +236,11 @@ TEST(ut_xpjsonW, read)
 		ASSERT_TRUE(JSON::ReaderW::read(v, in.c_str(), in.length()) == in.length());
 		ASSERT_TRUE(v[L"aa\b"].s() == L"b");
 
+		// case 11 escaped key
+		in = L"{\"aa\\b\\\"\":\"b\"}";
+		ASSERT_TRUE(JSON::ReaderW::read(v, in.c_str(), in.length()) == in.length());
+		ASSERT_TRUE(v[L"aa\b\""].s() == L"b");
+
 		// exception cases
 		// case 1 bracket not match
 		in = L"{\"a\":\"b\"";
@@ -287,6 +298,36 @@ TEST(ut_xpjsonW, read)
 		EXPECT_THROW(JSON::ReaderW::read(v, in.c_str(), in.length()), std::logic_error);
 		in = L"[\"a\",\"b\"a";
 		EXPECT_THROW(JSON::ReaderW::read(v, in.c_str(), in.length()), std::logic_error);
+
+		// case 9 end with backslash in key
+		in = L"{\"a\\";
+		EXPECT_THROW(JSON::ReaderW::read(v, in.c_str(), in.length()), std::logic_error);
+
+		// case 10 bad cow case when hit sso(1/5 bytes if sizof(wchar_t) is 2; 1 byte if sizof(wchar_t) is 4)
+		JSON::ValueW v2(L"y");
+		v = v2; // incorrect treat as cow when cow(sso_len highest bit) is true
+		*const_cast<wchar_t*>(v2.c_str()) = 'z';
+		ASSERT_TRUE(v.s() == L"y");
+	}
+	catch(std::exception &e) {
+		printf("Error : %s.", e.what());
+		ASSERT_TRUE(false);
+	}
+}
+
+TEST(ut_xpjsonW, read_write)
+{
+	try {
+		wstring in(L"[\"test\\\"\\\\\\/\\b\\f\\n\\r\\t\",\"test\"]");
+		JSON::ValueW v;
+		{
+			JSON::ReaderW::read(v, in.c_str(), in.length());
+			ASSERT_TRUE(v.type() == JSON::ARRAY);
+
+			wstring out;
+			v.write(out);
+			ASSERT_EQ(in, out);
+		}
 	}
 	catch(std::exception &e) {
 		printf("Error : %s.", e.what());
@@ -706,6 +747,13 @@ TEST(ut_xpjsonW, compare_function)
 		ASSERT_TRUE(str1 != str_v);
 		ASSERT_TRUE(str_v != JSON::ValueW(str1));
 
+		ASSERT_TRUE(str_v == L"test");
+		ASSERT_TRUE(L"test" == str_v);
+		ASSERT_TRUE(str_v == JSON::ValueW(str));
+		ASSERT_TRUE(str_v != L"test1");
+		ASSERT_TRUE(L"test1" != str_v);
+		ASSERT_TRUE(str_v != JSON::ValueW(str1));
+
 		/* array */
 		// type
 		ASSERT_FALSE(nil == arr_v);
@@ -880,6 +928,20 @@ TEST(ut_xpjsonW, get)
 		ASSERT_TRUE(s == L"test");
 		s = v[L"string_not_exist"].get<wstring>(s_tmp);
 		ASSERT_TRUE(s == s_tmp);
+
+		JSON::ValueW ev;
+		const JSON::ValueW& ecv = ev;
+		i = ecv.get<int>(L"integer_not_exist", 10);
+		ASSERT_TRUE(i == 10);
+
+		f = ecv.get<float>(L"float_not_exist", 10);
+		ASSERT_TRUE(fabs(f - 10) < 1E-6);
+
+		b = ecv.get(L"boolean_not_exist", false);
+		ASSERT_TRUE(b == false);
+
+		s = ecv.get(L"string_not_exist", s_tmp);
+		ASSERT_TRUE(s == s_tmp);
 	}
 	catch(std::exception &e) {
 		printf("Error : %s.", e.what());
@@ -902,6 +964,7 @@ TEST(ut_xpjsonW, get_with_casting)
 		v[L"s_b_f"] = L"false";
 		v[L"s_b_f_1"] = L"0";
 		v[L"s_b_f_2"] = L"0.0";
+		v[L"s_b_f_3"] = L"unknown";
 
 		// 1. cast to integer
 		ASSERT_TRUE(v.get<char>(L"i", 0) == 1);
@@ -911,6 +974,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v.get<char>(L"s_f", 0) == 1);
 		ASSERT_TRUE(v.get<char>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<char>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<char>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<char>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<char>(0) == 1);
 		ASSERT_TRUE(v[L"f"].get<char>(1) == 0);
@@ -919,6 +984,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v[L"s_f"].get<char>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_t"].get<char>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<char>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<char>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<char>(1) == 1);
 
 		ASSERT_TRUE(v.get<short>(L"i", 0) == 1);
 		ASSERT_TRUE(v.get<short>(L"f", 1) == 0);
@@ -927,6 +994,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v.get<short>(L"s_f", 0) == 1);
 		ASSERT_TRUE(v.get<short>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<short>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<short>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<short>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<short>(0) == 1);
 		ASSERT_TRUE(v[L"f"].get<short>(1) == 0);
@@ -935,6 +1004,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v[L"s_f"].get<short>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_t"].get<short>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<short>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<short>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<short>(1) == 1);
 
 		ASSERT_TRUE(v.get<int>(L"i", 0) == 1);
 		ASSERT_TRUE(v.get<int>(L"f", 1) == 0);
@@ -943,6 +1014,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v.get<int>(L"s_f", 0) == 1);
 		ASSERT_TRUE(v.get<int>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<int>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<int>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<int>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<int>(0) == 1);
 		ASSERT_TRUE(v[L"f"].get<int>(1) == 0);
@@ -951,6 +1024,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v[L"s_f"].get<int>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_t"].get<int>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<int>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<int>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<int>(1) == 1);
 
 		ASSERT_TRUE(v.get<int64_t>(L"i", 0) == 1);
 		ASSERT_TRUE(v.get<int64_t>(L"f", 1) == 0);
@@ -959,6 +1034,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v.get<int64_t>(L"s_f", 0) == 1);
 		ASSERT_TRUE(v.get<int64_t>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<int64_t>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<int64_t>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<int64_t>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<int64_t>(0) == 1);
 		ASSERT_TRUE(v[L"f"].get<int64_t>(1) == 0);
@@ -967,6 +1044,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v[L"s_f"].get<int64_t>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_t"].get<int64_t>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<int64_t>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<int64_t>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<int64_t>(1) == 1);
 
 		// 2. cast to float
 		ASSERT_TRUE(v.get<float>(L"i", 0) == 1);
@@ -976,6 +1055,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(fabs(v.get<float>(L"s_f", 0) - 1.1) < JSON_EPSILON);
 		ASSERT_TRUE(v.get<float>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<float>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<float>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<float>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<float>(0) == 1);
 		ASSERT_TRUE(fabs(v[L"f"].get<float>(0) - 0.1) < JSON_EPSILON);
@@ -984,6 +1065,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(fabs(v[L"s_f"].get<float>(0) - 1.1) < JSON_EPSILON);
 		ASSERT_TRUE(v[L"s_b_t"].get<float>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<float>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<float>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<float>(1) == 1);
 
 		ASSERT_TRUE(v.get<double>(L"i", 0) == 1);
 		ASSERT_TRUE(fabs(v.get<double>(L"f", 0) - 0.1) < JSON_EPSILON);
@@ -992,6 +1075,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(fabs(v.get<double>(L"s_f", 0) - 1.1) < JSON_EPSILON);
 		ASSERT_TRUE(v.get<double>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<double>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<double>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<double>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<double>(0) == 1);
 		ASSERT_TRUE(fabs(v[L"f"].get<double>(0) - 0.1) < JSON_EPSILON);
@@ -1000,6 +1085,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(fabs(v[L"s_f"].get<double>(0) - 1.1) < JSON_EPSILON);
 		ASSERT_TRUE(v[L"s_b_t"].get<double>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<double>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<double>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<double>(1) == 1);
 
 		ASSERT_TRUE(v.get<long double>(L"i", 0) == 1);
 		ASSERT_TRUE(fabs(v.get<long double>(L"f", 0) - 0.1) < JSON_EPSILON);
@@ -1008,6 +1095,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(fabs(v.get<long double>(L"s_f", 0) - 1.1) < JSON_EPSILON);
 		ASSERT_TRUE(v.get<long double>(L"s_b_t", 0) == 1);
 		ASSERT_TRUE(v.get<long double>(L"s_b_f", 1) == 0);
+		ASSERT_TRUE(v.get<long double>(L"s_b_f_3", 0) == 0);
+		ASSERT_TRUE(v.get<long double>(L"s_b_f_3", 1) == 1);
 
 		ASSERT_TRUE(v[L"i"].get<long double>(0) == 1);
 		ASSERT_TRUE(fabs(v[L"f"].get<long double>(0) - 0.1) < JSON_EPSILON);
@@ -1016,6 +1105,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(fabs(v[L"s_f"].get<long double>(0) - 1.1) < JSON_EPSILON);
 		ASSERT_TRUE(v[L"s_b_t"].get<long double>(0) == 1);
 		ASSERT_TRUE(v[L"s_b_f"].get<long double>(1) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<long double>(0) == 0);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<long double>(1) == 1);
 
 		// 3. cast to bool
 		ASSERT_TRUE(v.get<bool>(L"i", false) == true);
@@ -1029,6 +1120,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v.get<bool>(L"s_b_f", true) == false);
 		ASSERT_TRUE(v.get<bool>(L"s_b_f_1", true) == false);
 		ASSERT_TRUE(v.get<bool>(L"s_b_f_2", true) == false);
+		ASSERT_TRUE(v.get<bool>(L"s_b_f_3", true) == true);
+		ASSERT_TRUE(v.get<bool>(L"s_b_f_3", false) == false);
 
 		ASSERT_TRUE(v[L"i"].get<bool>(false) == true);
 		ASSERT_TRUE(v[L"f"].get<bool>(true) == true);
@@ -1041,6 +1134,8 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v[L"s_b_f"].get<bool>(true) == false);
 		ASSERT_TRUE(v[L"s_b_f_1"].get<bool>(true) == false);
 		ASSERT_TRUE(v[L"s_b_f_2"].get<bool>(true) == false);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<bool>(true) == true);
+		ASSERT_TRUE(v[L"s_b_f_3"].get<bool>(false) == false);
 
 		// 4. cast to string
 		wstring empty;
@@ -1067,22 +1162,6 @@ TEST(ut_xpjsonW, get_with_casting)
 		ASSERT_TRUE(v[L"s_b_f"].get<wstring>(empty) == L"false");
 		ASSERT_TRUE(v[L"s_b_f_1"].get<wstring>(empty) == L"0");
 		ASSERT_TRUE(v[L"s_b_f_2"].get<wstring>(empty) == L"0.0");
-
-		JSON::Value v_e;
-		v[L"s_i"] = L"1x";
-		v[L"s_f"] = L"1.1x";
-		v[L"s_b_t"] = L"trux";
-		v[L"s_b_f"] = L"falsx";
-
-		EXPECT_THROW(v.get<int>(L"s_i", 0), std::logic_error);
-		EXPECT_THROW(v.get<int>(L"s_f", 0), std::logic_error);
-		EXPECT_THROW(v.get<bool>(L"s_b_t", true), std::logic_error);
-		EXPECT_THROW(v.get<bool>(L"s_b_f", true), std::logic_error);
-
-		EXPECT_THROW(v[L"s_i"].get<int>(0), std::logic_error);
-		EXPECT_THROW(v[L"s_f"].get<int>(0), std::logic_error);
-		EXPECT_THROW(v[L"s_b_t"].get<bool>(true), std::logic_error);
-		EXPECT_THROW(v[L"s_b_f"].get<bool>(true), std::logic_error);
 	}
 	catch(std::exception &e) {
 		printf("Error : %s.", e.what());
@@ -1114,20 +1193,20 @@ TEST(ut_xpjsonW, read_string)
 		v.write(out);
 		ASSERT_TRUE(in == out);
 
-		in = L"\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000a\\u000b\\u000c\\u000d\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\"";
+		in = L"\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000a\\u000b\\u000c\\u000d\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\"";
 		ASSERT_TRUE(v.read_string(in.c_str(), in.length()) == in.length());
-		ASSERT_TRUE(v.s() == wstring(L"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13", 20));
+		ASSERT_TRUE(v.s() == wstring(L"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f", 32));
 
-		in = L"\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\"";
+		in = L"\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\"";
 		ASSERT_TRUE(v.read_string(in.c_str(), in.length()) == in.length());
-		ASSERT_TRUE(v.s() == wstring(L"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13", 20));
+		ASSERT_TRUE(v.s() == wstring(L"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f", 32));
 
 		// check escape string equal
 		out.clear();
 		v.write(out);
 		ASSERT_TRUE(in == out);
 
-		wstring sepcial_in = wstring(L"\"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\"", 22);
+		wstring sepcial_in = wstring(L"\"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\"", 34);
 		ASSERT_TRUE(v.read_string(sepcial_in.c_str(), sepcial_in.length()) == sepcial_in.length());
 
 		// check escape string equal
@@ -1230,6 +1309,28 @@ TEST(ut_xpjsonW, read_number)
 		ASSERT_TRUE(v.f() == -3.123e-2);
 		ASSERT_TRUE(v.read_number(L" \r\n\t-3.12 3e-2", 14) == 9);
 		ASSERT_TRUE(v.f() == -3.12);
+
+		// case 6 special cases
+		ASSERT_TRUE(v.read_number(L"-9223372036854775809", 20) == 20);
+		ASSERT_TRUE(v.f() == -9.2233720368547758e+18);
+		ASSERT_TRUE(v.read_number(L"-9223372036854774784.0", 22) == 22);
+		ASSERT_TRUE(v.f() == -9.2233720368547748e+18);
+		ASSERT_TRUE(v.read_number(L"9223372036854775808.0", 21) == 21);
+		ASSERT_TRUE(v.f() == 9.2233720368547758e+18);
+		ASSERT_TRUE(v.read_number(L"7205759403792793199999e-5", 25) == 25);
+		ASSERT_TRUE(v.f() == 72057594037927936);
+		ASSERT_TRUE(v.read_number(L"7205759403792793200001e-5", 25) == 25);
+		ASSERT_TRUE(v.f() == 72057594037927936);
+		ASSERT_TRUE(v.read_number(L"1.725073858507201136057409796709131975934819546351645648023426109724822222021076945516529523908135087914149158913039621106870086438694594645527657207407820621743379988141063267329253552286881372149012981122451451889849057222307285255133155755015914397476397983411801999323962548289017107081850690630666655994938275772572015763062690663332647565300009245888316433037779791869612049497390377829704905051080609940730262937128958950003583799967207254304360284078895771796150945516748243471030702609144621572289880258182545180325707018860872113128079512233426288368622321503775666622503982534335974568884423900265498198385487948292206894721689831099698365846814022854243330660339850886445804001034933970427567186443383770486037861622771738545623065874679014086723327636718751234567890123456789012345678901e-290", 805) == 805);
+		ASSERT_TRUE(v.f() == 1.7250738585072009e-290);
+		ASSERT_TRUE(v.read_number(L"1014120480182583464902367222169599999e-5", 40) == 40);
+		ASSERT_TRUE(v.f() == 1.0141204801825834e+31);
+		ASSERT_TRUE(v.read_number(L"1014120480182583464902367222169600001e-5", 40) == 40);
+		ASSERT_TRUE(v.f() == 1.0141204801825834e+31);
+		ASSERT_TRUE(v.read_number(L"5708990770823839207320493820740630171355185151999e-3", 52) == 52);
+		ASSERT_TRUE(v.f() == 5.7089907708238389e+45);
+		ASSERT_TRUE(v.read_number(L"5708990770823839207320493820740630171355185152001e-3", 52) == 52);
+		ASSERT_TRUE(v.f() == 5.7089907708238389e+45);
 
 		// 2. exception cases
 		// case 1 unexcept endings after integer number
